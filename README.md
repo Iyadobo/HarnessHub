@@ -26,8 +26,10 @@ finds Herdr beside itself or in a checkout-local `.local/herdr/` directory.
 The first screen selects a provider: existing harness sign-in, Anthropic, OpenAI,
 Google AI Studio, OpenRouter, or a custom Chat Completions, Responses, or Anthropic
 Messages endpoint. The next screen lists matching harnesses and their installation
-status. Choose your project and model. Keys come from the provider's environment
-variable, or a masked prompt. The launcher then opens the full Herdr terminal UI.
+status. Choose your project, then select a model from the provider's live catalog.
+Type to filter long lists. Manual model entry and the harness default are also
+available. If lookup fails, manual entry remains available. Existing harness login
+keeps that harness's own model setup. The launcher then opens the Herdr terminal UI.
 
 Run another `harnesshub` from another terminal to add another harness. Detach with
 Herdr's `Ctrl+B`, then `q`; the named `harnesshub` session keeps running.
@@ -35,6 +37,9 @@ Herdr's `Ctrl+B`, then `q`; the named `harnesshub` session keeps running.
 ## Commands
 
 ```sh
+harnesshub keys save --provider anthropic
+harnesshub keys status --provider anthropic
+harnesshub keys forget --provider anthropic
 harnesshub providers
 harnesshub harnesses
 harnesshub launch --provider openai --harness codex --cwd /path/to/project --model YOUR_MODEL
@@ -47,7 +52,7 @@ harnesshub stop w1:p1
 
 Use `--session NAME` to isolate groups. Pane IDs come from `harnesshub list`.
 `stop` ends the chosen pane process; it does not delete project files. Noninteractive
-launches must provide a key through the chosen environment variable and use
+launches use an environment key or an already saved key, and use
 `--no-attach` when no terminal is available.
 
 ## Harnesses and BYOK
@@ -73,8 +78,12 @@ prefix. OpenRouter model IDs retain their vendor prefix, such as `vendor/model`.
 
 Default key variables: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`,
 `OPENROUTER_API_KEY`, or `HARNESSHUB_API_KEY`. Override the reference with
-`--key-env NAME`. The key is never accepted as a command-line argument or stored
-in a profile, launch command, or temporary credential file. A short-lived,
+`--key-env NAME`. Environment keys take priority over saved keys. Masked entry
+saves the key in the OS credential store (Windows Credential Manager, macOS
+Keychain, or Linux Secret Service). `keys save` also imports an environment key.
+Custom keys are scoped to provider, endpoint, and variable. `keys forget` removes
+only HarnessHub's saved key. Keys are never accepted as command-line arguments or
+stored in plaintext profiles, launch commands, or temporary files. A short-lived,
 authenticated, single-use loopback connection passes it to the target terminal's
 child environment. This is a local credential handoff, not a web service. A local
 process running as your user can still inspect your processes and environment;

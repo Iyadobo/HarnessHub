@@ -11,7 +11,14 @@ pub fn choose(title: &str, subtitle: &str, items: &[String]) -> io::Result<Optio
     let mut terminal = ratatui::init();
     let result = (|| {
         let mut selected = ListState::default().with_selected(Some(0));
+        let mut query = String::new();
         loop {
+            let needle = query.to_lowercase();
+            let visible: Vec<_> = items
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| item.to_lowercase().contains(&needle))
+                .collect();
             terminal.draw(|frame| {
                 let areas = Layout::vertical([
                     Constraint::Length(4),
@@ -21,11 +28,11 @@ pub fn choose(title: &str, subtitle: &str, items: &[String]) -> io::Result<Optio
                 .margin(1)
                 .split(frame.area());
                 frame.render_widget(
-                    Paragraph::new(format!("HarnessHub\n{subtitle}"))
+                    Paragraph::new(format!("HarnessHub\n{subtitle}\nFilter: {query}"))
                         .style(Style::default().fg(Color::Green)),
                     areas[0],
                 );
-                let list = List::new(items.iter().map(|item| ListItem::new(item.as_str())))
+                let list = List::new(visible.iter().map(|(_, item)| ListItem::new(item.as_str())))
                     .block(Block::default().borders(Borders::ALL).title(title))
                     .highlight_symbol(" > ")
                     .highlight_style(
@@ -36,7 +43,7 @@ pub fn choose(title: &str, subtitle: &str, items: &[String]) -> io::Result<Optio
                     );
                 frame.render_stateful_widget(list, areas[1], &mut selected);
                 frame.render_widget(
-                    Paragraph::new("↑/↓ choose   Enter select   Esc cancel"),
+                    Paragraph::new("Type to filter   ↑/↓ choose   Enter select   Esc cancel"),
                     areas[2],
                 );
             })?;
@@ -47,11 +54,21 @@ pub fn choose(title: &str, subtitle: &str, items: &[String]) -> io::Result<Optio
                 let current = selected.selected().unwrap_or(0);
                 match key.code {
                     KeyCode::Up => selected.select(Some(current.saturating_sub(1))),
-                    KeyCode::Down => selected.select(Some((current + 1).min(items.len() - 1))),
-                    KeyCode::Enter => return Ok(Some(current)),
+                    KeyCode::Down => {
+                        selected.select(Some((current + 1).min(visible.len().saturating_sub(1))))
+                    }
+                    KeyCode::Enter if !visible.is_empty() => return Ok(Some(visible[current].0)),
                     KeyCode::Esc => return Ok(None),
                     KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
                         return Ok(None)
+                    }
+                    KeyCode::Backspace => {
+                        query.pop();
+                        selected.select(Some(0));
+                    }
+                    KeyCode::Char(c) if !c.is_control() => {
+                        query.push(c);
+                        selected.select(Some(0));
                     }
                     _ => {}
                 }
@@ -85,7 +102,7 @@ pub fn secret(variable: &str) -> io::Result<String> {
     if !io::stdin().is_terminal() {
         return Err(io::Error::other(format!("Set {variable} before launch.")));
     }
-    print!("Provider key ({variable}; memory only): ");
+    print!("Provider key ({variable}; saved in OS credential store): ");
     io::stdout().flush()?;
     crossterm::terminal::enable_raw_mode()?;
     let result = (|| {

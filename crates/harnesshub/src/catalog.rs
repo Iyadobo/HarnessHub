@@ -111,7 +111,7 @@ pub const HARNESSES: &[Harness] = &[
         name: "Aider",
         command: "aider",
         providers: &["native", "anthropic", "openai", "openrouter", "compatible"],
-        install: "python -m pip install aider-chat",
+        install: "uv tool install --python python3.12 --with pip aider-chat@latest",
         model_flag: true,
     },
     Harness {
@@ -119,7 +119,7 @@ pub const HARNESSES: &[Harness] = &[
         name: "Pi",
         command: "pi",
         providers: &["native", "anthropic", "openai", "google", "openrouter"],
-        install: "npm install -g @mariozechner/pi-coding-agent",
+        install: "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
         model_flag: true,
     },
     Harness {
@@ -304,6 +304,9 @@ pub fn build(
             return Ok(spec);
         }
         "pi" => {
+            if model.is_empty() {
+                return Err("Pi BYOK requires --model.".into());
+            }
             spec.env.insert(provider.key_env.into(), key);
             spec.args.extend(["--provider".into(), provider.id.into()]);
         }
@@ -315,7 +318,7 @@ pub fn build(
     Ok(spec)
 }
 
-fn validate_endpoint(endpoint: &str) -> Result<(), String> {
+pub fn validate_endpoint(endpoint: &str) -> Result<(), String> {
     // Keep credentials out of URLs and permit cleartext only on loopback.
     let (scheme, rest) = endpoint
         .split_once("://")

@@ -1,5 +1,7 @@
 mod catalog;
+mod credentials;
 mod handoff;
+mod models;
 mod platform;
 mod ui;
 
@@ -10,7 +12,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-const HELP:&str="HarnessHub — provider-first terminal launcher on Herdr\n\n  harnesshub                          Pick provider, then harness; attach to Herdr\n  harnesshub launch [OPTIONS]         Launch a harness in its own project workspace\n  harnesshub providers               List model providers and API formats\n  harnesshub harnesses                List harnesses, installation, and BYOK support\n  harnesshub list                     List live panes and agent state\n  harnesshub attach                   Open the full Herdr TUI\n  harnesshub stop PANE_ID             Close that pane and stop its process\n\nLaunch options:\n  --provider ID    --harness ID    --model MODEL    --cwd PATH\n  --base-url URL   --key-env NAME  --session NAME   --no-attach\n\nKeys come from the selected provider environment variable, or masked terminal\nentry. There is no --api-key option and no credential file. API formats must\nmatch: Codex uses Responses; Claude uses Messages; chat endpoints use OpenCode\nor Aider. HARNESSHUB_HERDR selects a Herdr runtime outside PATH.\n";
+const HELP:&str="HarnessHub — provider-first terminal launcher on Herdr\n\n  harnesshub                          Pick provider, then harness; attach to Herdr\n  harnesshub launch [OPTIONS]         Launch a harness in its own project workspace\n  harnesshub providers               List model providers and API formats\n  harnesshub harnesses                List harnesses, installation, and BYOK support\n  harnesshub list                     List live panes and agent state\n  harnesshub attach                   Open the full Herdr TUI\n  harnesshub stop PANE_ID             Close that pane and stop its process\n  harnesshub keys save|status|forget --provider ID [--base-url URL]\n\nLaunch options:\n  --provider ID    --harness ID    --model MODEL    --cwd PATH\n  --base-url URL   --key-env NAME  --session NAME   --no-attach\n\nKeys come from environment, then the OS credential store, then masked entry.\nEntered keys are saved securely for the next launch. Use keys forget to remove.\nModels are fetched from the provider; type in the picker to filter.\nThere is no --api-key option or plaintext credential file. API formats must\nmatch: Codex uses Responses; Claude uses Messages; chat endpoints use OpenCode\nor Aider. HARNESSHUB_HERDR selects a Herdr runtime outside PATH.\n";
 
 #[derive(Default)]
 struct Options {
@@ -248,13 +250,6 @@ fn launch(o: Options) -> io::Result<i32> {
     if !PathBuf::from(&cwd).is_dir() {
         return Err(io::Error::other("Project folder does not exist."));
     }
-    let model = match o.model {
-        Some(m) => m,
-        None if interactive && harness.model_flag => {
-            ui::text("Model ID (blank uses harness default)", "")?
-        }
-        None => String::new(),
-    };
     let endpoint = match o.endpoint {
         Some(url) => url,
         None if interactive && ["compatible", "responses", "gateway"].contains(&provider.id) => {
@@ -263,13 +258,71 @@ fn launch(o: Options) -> io::Result<i32> {
         None => provider.endpoint.into(),
     };
     let key_env = o.key_env.as_deref().unwrap_or(provider.key_env);
+    if !endpoint.is_empty() {
+        catalog::validate_endpoint(&endpoint).map_err(io::Error::other)?;
+    }
     let key = if provider.id == "native" {
         None
     } else {
         match std::env::var(key_env) {
             Ok(key) if !key.is_empty() => Some(key),
-            _ => Some(ui::secret(key_env)?),
+            _ => match credentials::load(provider.id, &endpoint, key_env)? {
+                Some(key) => {
+                    println!("Using saved {} key.", provider.name);
+                    Some(key)
+                }
+                None => {
+                    let key = ui::secret(key_env)?;
+                    credentials::save(provider.id, &endpoint, key_env, &key)?;
+                    println!("Key saved in your OS credential store.");
+                    Some(key)
+                }
+            },
         }
+    };
+    let model = match o.model {
+        Some(m) => m,
+        None if interactive && harness.model_flag => {
+            let mut ids = Vec::new();
+            if let Some(ref key) = key {
+                println!("Fetching available models…");
+                match models::fetch(provider.id, &endpoint, key) {
+                    Ok(found) => ids = found,
+                    Err(error) => println!("{error} You can enter a model ID manually."),
+                }
+            } else if harness.id == "claude" {
+                ids = ["sonnet", "opus", "haiku", "opusplan"]
+                    .map(String::from)
+                    .to_vec();
+            }
+            let requires_model = provider.id != "native"
+                && (["aider", "pi"].contains(&harness.id)
+                    || (harness.id == "opencode"
+                        && ["compatible", "responses"].contains(&provider.id)));
+            let mut rows = Vec::new();
+            if !requires_model {
+                rows.push("Use harness default".into());
+            }
+            let manual_index = rows.len();
+            rows.push("Enter model ID manually…".into());
+            rows.extend(ids.iter().cloned());
+            let Some(index) = ui::choose(
+                " Model ",
+                "Provider catalog. Model support also depends on the harness.",
+                &rows,
+            )?
+            else {
+                return Ok(0);
+            };
+            if index == manual_index {
+                ui::text("Model ID", "")?
+            } else if !requires_model && index == 0 {
+                String::new()
+            } else {
+                ids[index - manual_index - 1].clone()
+            }
+        }
+        None => String::new(),
     };
     let mut spec = catalog::build(
         harness,
@@ -400,6 +453,50 @@ fn run() -> io::Result<i32> {
                     },
                     h.providers.join(", ")
                 );
+            }
+            Ok(0)
+        }
+        "keys" => {
+            let verb = args.get(1).map(String::as_str).unwrap_or("status");
+            if !["save", "forget", "status"].contains(&verb) {
+                return Err(io::Error::other("Usage: harnesshub keys save|forget|status --provider ID [--base-url URL] [--key-env NAME]"));
+            }
+            let o = options(&args[2.min(args.len())..]).map_err(io::Error::other)?;
+            let provider = PROVIDERS
+                .iter()
+                .find(|p| Some(p.id) == o.provider.as_deref())
+                .filter(|p| p.id != "native")
+                .ok_or_else(|| io::Error::other("Choose an API provider with --provider ID."))?;
+            let endpoint = o.endpoint.as_deref().unwrap_or(provider.endpoint);
+            if ["compatible", "responses", "gateway"].contains(&provider.id) && endpoint.is_empty()
+            {
+                return Err(io::Error::other("Custom providers require --base-url URL."));
+            }
+            if !endpoint.is_empty() {
+                catalog::validate_endpoint(endpoint).map_err(io::Error::other)?;
+            }
+            let variable = o.key_env.as_deref().unwrap_or(provider.key_env);
+            match verb {
+                "save" => {
+                    let key = match std::env::var(variable) {
+                        Ok(key) if !key.is_empty() => key,
+                        _ => ui::secret(variable)?,
+                    };
+                    credentials::save(provider.id, endpoint, variable, &key)?;
+                    println!("Key saved in your OS credential store.");
+                }
+                "forget" => {
+                    credentials::forget(provider.id, endpoint, variable)?;
+                    println!("Saved key removed. Environment keys are unchanged.");
+                }
+                _ => println!(
+                    "Saved key: {}",
+                    if credentials::load(provider.id, endpoint, variable)?.is_some() {
+                        "present"
+                    } else {
+                        "none"
+                    }
+                ),
             }
             Ok(0)
         }
