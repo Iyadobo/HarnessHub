@@ -1,5 +1,6 @@
 mod catalog;
 mod credentials;
+mod go;
 mod handoff;
 mod models;
 mod platform;
@@ -195,7 +196,7 @@ fn launch(mut o: Options) -> io::Result<i32> {
                 "{}{}",
                 p.name,
                 if p.id == "opencode-go" {
-                    "  [preset: OpenCode + Go]".into()
+                    "  [provider preset]".into()
                 } else if p.key_env.is_empty() {
                     String::new()
                 } else {
@@ -221,9 +222,6 @@ fn launch(mut o: Options) -> io::Result<i32> {
         .iter()
         .find(|p| Some(p.id) == o.provider.as_deref())
         .ok_or_else(|| io::Error::other("Unknown provider. Run harnesshub providers."))?;
-    if provider.id == "opencode-go" && o.harness.is_none() {
-        o.harness = Some("opencode".into());
-    }
     let available: Vec<_> = HARNESSES
         .iter()
         .filter(|h| h.providers.contains(&provider.id))
@@ -334,6 +332,9 @@ fn launch(mut o: Options) -> io::Result<i32> {
                 ids = ["sonnet", "opus", "haiku", "opusplan"]
                     .map(String::from)
                     .to_vec();
+            }
+            if provider.id == "opencode-go" {
+                ids.retain(|model| go::supports(harness.id, model));
             }
             let requires_model = provider.id != "native"
                 && (provider.id == "opencode-go"

@@ -77,7 +77,7 @@ pub const HARNESSES: &[Harness] = &[
         id: "claude",
         name: "Claude Code",
         command: "claude",
-        providers: &["native", "anthropic", "gateway"],
+        providers: &["native", "anthropic", "gateway", "opencode-go"],
         install: "npm install -g @anthropic-ai/claude-code",
         model_flag: true,
     },
@@ -85,7 +85,7 @@ pub const HARNESSES: &[Harness] = &[
         id: "codex",
         name: "Codex",
         command: "codex",
-        providers: &["native", "openai", "responses"],
+        providers: &["native", "openai", "responses", "opencode-go"],
         install: "npm install -g @openai/codex",
         model_flag: true,
     },
@@ -125,7 +125,14 @@ pub const HARNESSES: &[Harness] = &[
         id: "pi",
         name: "Pi",
         command: "pi",
-        providers: &["native", "anthropic", "openai", "google", "openrouter"],
+        providers: &[
+            "native",
+            "anthropic",
+            "openai",
+            "google",
+            "openrouter",
+            "opencode-go",
+        ],
         install: "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
         model_flag: true,
     },
@@ -193,6 +200,28 @@ pub fn build(
             "{} does not support {}. Choose a matching provider.",
             harness.name, provider.name
         ));
+    }
+    if provider.id == "opencode-go" && ["claude", "codex"].contains(&harness.id) {
+        if !crate::go::supports(harness.id, model) {
+            return Err(format!("{} cannot use this Go model's API format. Choose a compatible model, OpenCode, or Pi.", harness.name));
+        }
+        let adapter_id = if harness.id == "claude" {
+            "gateway"
+        } else {
+            "responses"
+        };
+        let adapter = PROVIDERS.iter().find(|p| p.id == adapter_id).unwrap();
+        let base = if endpoint.is_empty() {
+            provider.endpoint
+        } else {
+            endpoint
+        };
+        let base = if harness.id == "claude" {
+            base.trim_end_matches('/').trim_end_matches("/v1")
+        } else {
+            base
+        };
+        return build(harness, adapter, model, base, key_env, key, cwd);
     }
     if model.chars().any(char::is_control) || model.len() > 200 {
         return Err("Invalid model ID.".into());
@@ -448,6 +477,33 @@ mod tests {
         assert!(config["provider"]["opencode-go"]["options"]["baseURL"].is_null());
         assert!(config["provider"]["opencode-go"]["npm"].is_null());
         assert!(!s.env["OPENCODE_CONFIG_CONTENT"].contains("fake-test-key"));
+    }
+    #[test]
+    fn go_routes_harnesses_by_model_protocol() {
+        let claude = spec("claude", "opencode-go", "claude-haiku-5-5", "").unwrap();
+        assert_eq!(
+            claude.env["ANTHROPIC_BASE_URL"],
+            "https://opencode.ai/zen/go"
+        );
+        assert_eq!(claude.env["ANTHROPIC_API_KEY"], "fake-test-key");
+        let codex = spec("codex", "opencode-go", "gpt-6-luna", "").unwrap();
+        assert!(codex
+            .args
+            .iter()
+            .any(|s| s.contains("https://opencode.ai/zen/go/v1")));
+        assert!(codex
+            .args
+            .iter()
+            .any(|s| s.contains("wire_api=\"responses\"")));
+        let pi = spec("pi", "opencode-go", "kimi-k3", "").unwrap();
+        assert_eq!(pi.env["OPENCODE_API_KEY"], "fake-test-key");
+        assert_eq!(
+            pi.args,
+            vec!["--provider", "opencode-go", "--model", "kimi-k3"]
+        );
+        assert!(spec("claude", "opencode-go", "kimi-k3", "").is_err());
+        assert!(spec("codex", "opencode-go", "claude-haiku-5-5", "").is_err());
+        assert!(spec("claude", "opencode-go", "unknown-model", "").is_err());
     }
     #[test]
     fn endpoint_rules() {

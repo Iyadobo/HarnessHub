@@ -40,10 +40,13 @@ Profiles contain no API keys. They live in `%LOCALAPPDATA%\HarnessHub\profiles.j
 on Windows or `$XDG_CONFIG_HOME/harnesshub/profiles.json` (`~/.config/harnesshub`
 by default) on Unix.
 
-The OpenCode Go preset selects OpenCode and its native `opencode-go` provider.
-It uses `OPENCODE_API_KEY`, the official Go endpoint, and the installed OpenCode
-model catalog. OpenCode keeps its built-in model-specific API formats and session
-headers. A Go subscription/key is required; HarnessHub does not purchase a plan.
+The OpenCode Go preset selects the provider, then lets you choose **Claude Code,
+Codex, OpenCode, or Pi**. It uses the same saved `OPENCODE_API_KEY` and official Go
+endpoint across these harnesses. Claude uses Go's Messages models; Codex uses
+Responses models. Their pickers filter the catalog by a bundled protocol snapshot
+from models.dev (2026-10-08); unknown models require a catalog update before use
+with those two harnesses. OpenCode and Pi use their native `opencode-go` adapters.
+A Go subscription/key is required; HarnessHub does not purchase a plan.
 
 Run another `harnesshub` from another terminal to add another harness. Detach with
 Herdr's `Ctrl+B`, then `q`; the named `harnesshub` session keeps running.

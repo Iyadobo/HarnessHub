@@ -92,3 +92,23 @@ committed implementation. HarnessHub is a terminal application.
   check used a fake key, sent no AI prompt, and does not establish subscription
   authentication or paid inference. Public Go model metadata was fetched without
   credentials; the preset's actual picker uses the installed OpenCode catalog.
+
+## Go provider with harness choice
+
+- Go now opens a harness picker offering Claude Code, Codex, OpenCode, and Pi.
+  Existing saved profiles retain their chosen harness.
+- Claude and Codex model lists are filtered by protocol metadata from the current
+  public models.dev `opencode-go` catalog, bundled as `go-models.json` with its
+  retrieval date. Unknown model protocols are rejected for those two harnesses.
+  Claude gets the Go Messages base URL; Codex gets Responses. Pi uses its native
+  Go provider, including its existing session-header support.
+- 22 regular tests passed, plus formatting, warnings-denied Clippy, release build.
+  Adapter tests cover key environment mappings, URL/protocol selection, Pi native
+  arguments, and rejection of mismatched or unknown model protocols.
+- The real terminal displayed all four harness choices. Claude's Go model picker
+  displayed only Messages models. Disposable launches reached Claude's trust
+  screen, Pi's editor showing `(opencode-go) kimi-k3`, and Codex startup. Fake keys
+  were used; no trust prompt was accepted or inference task sent. Disposable test
+  profiles and runtime were removed. No real-key authentication was verified.
+- An installed launcher pointer now selects a versioned executable, allowing
+  upgrades while earlier HarnessHub processes remain open.
