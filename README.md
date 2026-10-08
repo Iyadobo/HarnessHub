@@ -18,6 +18,8 @@ cargo run -p harnesshub --release --locked
 ```
 
 Or run `target/release/harnesshub` (`harnesshub.exe` on Windows) in a terminal.
+On Windows, `HarnessHub.cmd` opens the same native launcher and builds it first
+when the binary is missing.
 `HARNESSHUB_HERDR` can point at a Herdr executable outside PATH. The launcher also
 finds Herdr beside itself or in a checkout-local `.local/herdr/` directory.
 
