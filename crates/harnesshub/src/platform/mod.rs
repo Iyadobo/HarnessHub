@@ -17,8 +17,14 @@ pub fn executable(command: &str) -> Option<PathBuf> {
 pub fn shell() -> String {
     os::shell()
 }
+pub fn config_dir() -> std::io::Result<PathBuf> {
+    os::config_dir()
+}
 pub fn runner_command(executable: &str, endpoint: &str, token: &str) -> String {
     os::runner_command(executable, endpoint, token)
+}
+pub fn output_spec(spec: &LaunchSpec) -> std::io::Result<std::process::Output> {
+    os::output_spec(spec)
 }
 pub fn spawn_spec(spec: &LaunchSpec) -> std::io::Result<i32> {
     os::spawn_spec(spec)

@@ -31,6 +31,20 @@ Type to filter long lists. Manual model entry and the harness default are also
 available. If lookup fails, manual entry remains available. Existing harness login
 keeps that harness's own model setup. The launcher then opens the Herdr terminal UI.
 
+Saved profiles appear at the top of the first picker, followed by the **OpenCode
+Go** preset and other providers. Every successful launch automatically saves its
+provider, harness, model, endpoint, key-variable reference, and project folder.
+Selecting a profile launches that setup again without repeating those questions.
+Identical setups reuse one profile; the most recently used profile appears first.
+Profiles contain no API keys. They live in `%LOCALAPPDATA%\HarnessHub\profiles.json`
+on Windows or `$XDG_CONFIG_HOME/harnesshub/profiles.json` (`~/.config/harnesshub`
+by default) on Unix.
+
+The OpenCode Go preset selects OpenCode and its native `opencode-go` provider.
+It uses `OPENCODE_API_KEY`, the official Go endpoint, and the installed OpenCode
+model catalog. OpenCode keeps its built-in model-specific API formats and session
+headers. A Go subscription/key is required; HarnessHub does not purchase a plan.
+
 Run another `harnesshub` from another terminal to add another harness. Detach with
 Herdr's `Ctrl+B`, then `q`; the named `harnesshub` session keeps running.
 
@@ -41,6 +55,10 @@ harnesshub keys save --provider anthropic
 harnesshub keys status --provider anthropic
 harnesshub keys forget --provider anthropic
 harnesshub providers
+harnesshub profiles
+harnesshub launch --profile 1
+harnesshub profiles forget 1
+harnesshub launch --provider opencode-go --model kimi-k3
 harnesshub harnesses
 harnesshub launch --provider openai --harness codex --cwd /path/to/project --model YOUR_MODEL
 harnesshub launch --provider openrouter --harness opencode --model vendor/model --no-attach
@@ -51,6 +69,8 @@ harnesshub stop w1:p1
 ```
 
 Use `--session NAME` to isolate groups. Pane IDs come from `harnesshub list`.
+`--profile ID` can also override `--model` or `--cwd`, creating another saved setup.
+Removing a profile keeps its saved provider key.
 `stop` ends the chosen pane process; it does not delete project files. Noninteractive
 launches use an environment key or an already saved key, and use
 `--no-attach` when no terminal is available.

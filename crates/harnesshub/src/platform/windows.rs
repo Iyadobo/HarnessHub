@@ -27,6 +27,11 @@ pub fn executable(command: &str) -> Option<PathBuf> {
 pub fn shell() -> String {
     "powershell.exe".into()
 }
+pub fn config_dir() -> std::io::Result<PathBuf> {
+    std::env::var_os("LOCALAPPDATA")
+        .map(|p| PathBuf::from(p).join("HarnessHub"))
+        .ok_or_else(|| std::io::Error::other("LOCALAPPDATA is unavailable."))
+}
 fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
@@ -66,7 +71,7 @@ fn base64(bytes: &[u8]) -> String {
     }
     result
 }
-pub fn spawn_spec(spec: &LaunchSpec) -> std::io::Result<i32> {
+fn spec_command(spec: &LaunchSpec) -> std::io::Result<Command> {
     let exe = executable(&spec.command).ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -79,7 +84,7 @@ pub fn spawn_spec(spec: &LaunchSpec) -> std::io::Result<i32> {
             || e.eq_ignore_ascii_case("bat")
     }) {
         let mut c = Command::new("powershell.exe");
-        c.args(["-NoLogo","-NoProfile","-ExecutionPolicy","Bypass","-Command","$a = @(ConvertFrom-Json $env:HARNESSHUB_ARGS); & $env:HARNESSHUB_EXECUTABLE @a; exit $LASTEXITCODE"]);
+        c.args(["-NoLogo","-NoProfile","-ExecutionPolicy","Bypass","-Command","$a = ConvertFrom-Json $env:HARNESSHUB_ARGS; & $env:HARNESSHUB_EXECUTABLE @a; exit $LASTEXITCODE"]);
         c.env("HARNESSHUB_EXECUTABLE", exe);
         c.env("HARNESSHUB_ARGS", serde_json::to_string(&spec.args)?);
         c
@@ -88,9 +93,16 @@ pub fn spawn_spec(spec: &LaunchSpec) -> std::io::Result<i32> {
         c.args(&spec.args);
         c
     };
-    Ok(command
-        .current_dir(&spec.cwd)
-        .envs(&spec.env)
+    command.current_dir(&spec.cwd).envs(&spec.env);
+    Ok(command)
+}
+pub fn output_spec(spec: &LaunchSpec) -> std::io::Result<std::process::Output> {
+    let mut command = spec_command(spec)?;
+    background(&mut command);
+    command.output()
+}
+pub fn spawn_spec(spec: &LaunchSpec) -> std::io::Result<i32> {
+    Ok(spec_command(spec)?
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -105,6 +117,26 @@ pub fn background(command: &mut Command) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn script_arguments_remain_separate_in_windows_powershell() {
+        let path = std::env::temp_dir().join(format!("harnesshub-args-{}.ps1", std::process::id()));
+        std::fs::write(&path, "ConvertTo-Json -Compress -InputObject @($args)\n").unwrap();
+        let spec = LaunchSpec {
+            command: path.to_string_lossy().into_owned(),
+            args: vec![
+                "--model".into(),
+                "opencode-go/kimi-k3".into(),
+                "two words".into(),
+            ],
+            env: Default::default(),
+            cwd: std::env::temp_dir().to_string_lossy().into_owned(),
+        };
+        let output = output_spec(&spec).unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert!(output.status.success());
+        let args: Vec<String> = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(args, spec.args);
+    }
     #[test]
     fn encoding_has_no_shell_metacharacters() {
         assert_eq!(base64(b"abc"), "YWJj");

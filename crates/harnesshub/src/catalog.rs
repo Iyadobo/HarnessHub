@@ -10,6 +10,12 @@ pub struct Provider {
 }
 pub const PROVIDERS: &[Provider] = &[
     Provider {
+        id: "opencode-go",
+        name: "OpenCode Go",
+        key_env: "OPENCODE_API_KEY",
+        endpoint: "https://opencode.ai/zen/go/v1",
+    },
+    Provider {
         id: "native",
         name: "Harness login / existing setup",
         key_env: "",
@@ -89,6 +95,7 @@ pub const HARNESSES: &[Harness] = &[
         command: "opencode",
         providers: &[
             "native",
+            "opencode-go",
             "anthropic",
             "openai",
             "openrouter",
@@ -258,6 +265,9 @@ pub fn build(
             spec.env.insert("GEMINI_API_KEY".into(), key);
         }
         "opencode" => {
+            if provider.id == "opencode-go" && model.is_empty() {
+                return Err("OpenCode Go requires a model selection.".into());
+            }
             let config = if ["compatible", "responses"].contains(&provider.id) {
                 if model.is_empty() {
                     return Err("Custom OpenCode providers require --model.".into());
@@ -265,7 +275,7 @@ pub fn build(
                 json!({"provider":{"harnesshub":{"npm":if provider.id=="responses"{"@ai-sdk/openai"}else{"@ai-sdk/openai-compatible"},"name":"HarnessHub","options":{"baseURL":endpoint,"apiKey":format!("{{env:{key_env}}}")},"models":{model:{"name":model}}}},"model":format!("harnesshub/{model}")})
             } else {
                 let mut options = json!({"apiKey":format!("{{env:{key_env}}}")});
-                if !endpoint.is_empty() {
+                if !endpoint.is_empty() && provider.id != "opencode-go" {
                     options["baseURL"] = json!(endpoint);
                 }
                 if !model.is_empty() {
@@ -414,9 +424,30 @@ mod tests {
     }
     #[test]
     fn missing_model_and_endpoint_rejected() {
+        assert!(spec("opencode", "opencode-go", "", "").is_err());
         assert!(spec("aider", "openai", "", "").is_err());
         assert!(spec("opencode", "compatible", "", "https://example.com/v1").is_err());
         assert!(spec("claude", "gateway", "m", "").is_err());
+    }
+    #[test]
+    fn go_uses_native_provider_and_keeps_model_protocol_metadata() {
+        let s = spec(
+            "opencode",
+            "opencode-go",
+            "kimi-k3",
+            "https://opencode.ai/zen/go/v1",
+        )
+        .unwrap();
+        assert_eq!(s.args, vec!["--model", "opencode-go/kimi-k3"]);
+        let config: serde_json::Value =
+            serde_json::from_str(&s.env["OPENCODE_CONFIG_CONTENT"]).unwrap();
+        assert_eq!(
+            config["provider"]["opencode-go"]["options"]["apiKey"],
+            "{env:TEST_API_KEY}"
+        );
+        assert!(config["provider"]["opencode-go"]["options"]["baseURL"].is_null());
+        assert!(config["provider"]["opencode-go"]["npm"].is_null());
+        assert!(!s.env["OPENCODE_CONFIG_CONTENT"].contains("fake-test-key"));
     }
     #[test]
     fn endpoint_rules() {

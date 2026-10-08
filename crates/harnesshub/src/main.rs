@@ -3,6 +3,7 @@ mod credentials;
 mod handoff;
 mod models;
 mod platform;
+mod profiles;
 mod ui;
 
 use catalog::{HARNESSES, PROVIDERS};
@@ -12,10 +13,11 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-const HELP:&str="HarnessHub — provider-first terminal launcher on Herdr\n\n  harnesshub                          Pick provider, then harness; attach to Herdr\n  harnesshub launch [OPTIONS]         Launch a harness in its own project workspace\n  harnesshub providers               List model providers and API formats\n  harnesshub harnesses                List harnesses, installation, and BYOK support\n  harnesshub list                     List live panes and agent state\n  harnesshub attach                   Open the full Herdr TUI\n  harnesshub stop PANE_ID             Close that pane and stop its process\n  harnesshub keys save|status|forget --provider ID [--base-url URL]\n\nLaunch options:\n  --provider ID    --harness ID    --model MODEL    --cwd PATH\n  --base-url URL   --key-env NAME  --session NAME   --no-attach\n\nKeys come from environment, then the OS credential store, then masked entry.\nEntered keys are saved securely for the next launch. Use keys forget to remove.\nModels are fetched from the provider; type in the picker to filter.\nThere is no --api-key option or plaintext credential file. API formats must\nmatch: Codex uses Responses; Claude uses Messages; chat endpoints use OpenCode\nor Aider. HARNESSHUB_HERDR selects a Herdr runtime outside PATH.\n";
+const HELP:&str="HarnessHub — provider-first terminal launcher on Herdr\n\n  harnesshub                          Pick provider, then harness; attach to Herdr\n  harnesshub launch [OPTIONS]         Launch a harness in its own project workspace\n  harnesshub providers               List model providers and API formats\n  harnesshub harnesses                List harnesses, installation, and BYOK support\n  harnesshub list                     List live panes and agent state\n  harnesshub attach                   Open the full Herdr TUI\n  harnesshub stop PANE_ID             Close that pane and stop its process\n  harnesshub profiles                 List auto-saved launch profiles\n  harnesshub profiles forget ID       Remove a profile (keeps saved keys)\n  harnesshub keys save|status|forget --provider ID [--base-url URL]\n\nLaunch options:\n  --profile ID    --provider ID    --harness ID    --model MODEL    --cwd PATH\n  --base-url URL   --key-env NAME  --session NAME   --no-attach\n\nKeys come from environment, then the OS credential store, then masked entry.\nEntered keys are saved securely for the next launch. Use keys forget to remove.\nModels are fetched from the provider; type in the picker to filter.\nThere is no --api-key option or plaintext credential file. API formats must\nmatch: Codex uses Responses; Claude uses Messages; chat endpoints use OpenCode\nor Aider. HARNESSHUB_HERDR selects a Herdr runtime outside PATH.\n";
 
 #[derive(Default)]
 struct Options {
+    profile: Option<String>,
     provider: Option<String>,
     harness: Option<String>,
     model: Option<String>,
@@ -39,6 +41,7 @@ fn options(args: &[String]) -> Result<Options, String> {
             continue;
         }
         let target = match flag {
+            "--profile" => &mut o.profile,
             "--provider" => &mut o.provider,
             "--harness" => &mut o.harness,
             "--model" => &mut o.model,
@@ -156,37 +159,71 @@ fn start(runtime: &PathBuf, session: &str) -> io::Result<()> {
 fn attach(runtime: &PathBuf, session: &str) -> io::Result<i32> {
     Ok(command(runtime, session).status()?.code().unwrap_or(1))
 }
-fn launch(o: Options) -> io::Result<i32> {
-    let provider = if let Some(id) = &o.provider {
-        PROVIDERS
+fn apply_profile(o: &mut Options, profile: &profiles::Profile) {
+    let s = &profile.setup;
+    o.provider.get_or_insert_with(|| s.provider.clone());
+    o.harness.get_or_insert_with(|| s.harness.clone());
+    o.model.get_or_insert_with(|| s.model.clone());
+    o.cwd.get_or_insert_with(|| s.cwd.clone());
+    o.endpoint.get_or_insert_with(|| s.endpoint.clone());
+    o.key_env.get_or_insert_with(|| s.key_env.clone());
+}
+fn launch(mut o: Options) -> io::Result<i32> {
+    let store = profiles::Store::user()?;
+    let saved = store.load()?;
+    if let Some(id) = &o.profile {
+        if o.provider.is_some()
+            || o.harness.is_some()
+            || o.endpoint.is_some()
+            || o.key_env.is_some()
+        {
+            return Err(io::Error::other("A saved profile can override --model and --cwd. Choose a new launch to change its provider, harness, endpoint, or key variable."));
+        }
+        let id: u64 = id
+            .parse()
+            .map_err(|_| io::Error::other("Profile ID must be a number."))?;
+        let profile = saved
             .iter()
             .find(|p| p.id == id)
-            .ok_or_else(|| io::Error::other("Unknown provider. Run harnesshub providers."))?
-    } else {
-        let rows: Vec<_> = PROVIDERS
-            .iter()
-            .map(|p| {
-                format!(
-                    "{}{}",
-                    p.name,
-                    if p.key_env.is_empty() {
-                        String::new()
-                    } else {
-                        format!("  [{}]", p.key_env)
-                    }
-                )
-            })
-            .collect();
+            .ok_or_else(|| io::Error::other("Unknown saved profile. Run harnesshub profiles."))?;
+        apply_profile(&mut o, profile);
+    }
+    if o.provider.is_none() {
+        let mut rows: Vec<_> = saved.iter().map(profiles::Profile::label).collect();
+        rows.extend(PROVIDERS.iter().map(|p| {
+            format!(
+                "{}{}",
+                p.name,
+                if p.id == "opencode-go" {
+                    "  [preset: OpenCode + Go]".into()
+                } else if p.key_env.is_empty() {
+                    String::new()
+                } else {
+                    format!("  [{}]", p.key_env)
+                }
+            )
+        }));
         let Some(index) = ui::choose(
-            " Model provider ",
-            "Choose the provider whose key you want to use.",
+            " Profiles & providers ",
+            "Reuse a saved profile, or choose a provider. New launches save automatically.",
             &rows,
         )?
         else {
             return Ok(0);
         };
-        &PROVIDERS[index]
-    };
+        if index < saved.len() {
+            apply_profile(&mut o, &saved[index]);
+        } else {
+            o.provider = Some(PROVIDERS[index - saved.len()].id.into());
+        }
+    }
+    let provider = PROVIDERS
+        .iter()
+        .find(|p| Some(p.id) == o.provider.as_deref())
+        .ok_or_else(|| io::Error::other("Unknown provider. Run harnesshub providers."))?;
+    if provider.id == "opencode-go" && o.harness.is_none() {
+        o.harness = Some("opencode".into());
+    }
     let available: Vec<_> = HARNESSES
         .iter()
         .filter(|h| h.providers.contains(&provider.id))
@@ -258,6 +295,9 @@ fn launch(o: Options) -> io::Result<i32> {
         None => provider.endpoint.into(),
     };
     let key_env = o.key_env.as_deref().unwrap_or(provider.key_env);
+    if provider.id == "opencode-go" && endpoint.trim_end_matches('/') != provider.endpoint {
+        return Err(io::Error::other("The OpenCode Go preset uses its official endpoint. Choose a custom provider for another URL."));
+    }
     if !endpoint.is_empty() {
         catalog::validate_endpoint(&endpoint).map_err(io::Error::other)?;
     }
@@ -296,7 +336,8 @@ fn launch(o: Options) -> io::Result<i32> {
                     .to_vec();
             }
             let requires_model = provider.id != "native"
-                && (["aider", "pi"].contains(&harness.id)
+                && (provider.id == "opencode-go"
+                    || ["aider", "pi"].contains(&harness.id)
                     || (harness.id == "opencode"
                         && ["compatible", "responses"].contains(&provider.id)));
             let mut rows = Vec::new();
@@ -323,6 +364,14 @@ fn launch(o: Options) -> io::Result<i32> {
             }
         }
         None => String::new(),
+    };
+    let setup = profiles::Setup {
+        provider: provider.id.into(),
+        harness: harness.id.into(),
+        model: model.clone(),
+        endpoint: endpoint.clone(),
+        key_env: key_env.into(),
+        cwd: std::fs::canonicalize(&cwd)?.to_string_lossy().into_owned(),
     };
     let mut spec = catalog::build(
         harness,
@@ -409,6 +458,10 @@ fn launch(o: Options) -> io::Result<i32> {
         let _ = api(&runtime, &o.session, &["workspace", "close", workspace]);
         return Err(error);
     }
+    match store.save(setup) {
+        Ok(id) => println!("Profile #{id} saved automatically."),
+        Err(error) => eprintln!("Harness launched, but profile could not be saved: {error}"),
+    }
     if o.no_attach {
         Ok(0)
     } else {
@@ -453,6 +506,24 @@ fn run() -> io::Result<i32> {
                     },
                     h.providers.join(", ")
                 );
+            }
+            Ok(0)
+        }
+        "profiles" => {
+            let store = profiles::Store::user()?;
+            if args.get(1).is_some_and(|v| v == "forget") {
+                let id = args
+                    .get(2)
+                    .and_then(|v| v.parse().ok())
+                    .ok_or_else(|| io::Error::other("Usage: harnesshub profiles forget ID"))?;
+                store.forget(id)?;
+                println!("Profile #{id} removed. Saved keys are unchanged.");
+            } else if args.len() == 1 {
+                for profile in store.load()? {
+                    println!("{}", profile.label());
+                }
+            } else {
+                return Err(io::Error::other("Usage: harnesshub profiles [forget ID]"));
             }
             Ok(0)
         }

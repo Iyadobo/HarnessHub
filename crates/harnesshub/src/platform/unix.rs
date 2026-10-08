@@ -17,6 +17,14 @@ pub fn executable(command: &str) -> Option<PathBuf> {
 pub fn shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into())
 }
+pub fn config_dir() -> std::io::Result<PathBuf> {
+    if let Some(path) = std::env::var_os("XDG_CONFIG_HOME") {
+        return Ok(PathBuf::from(path).join("harnesshub"));
+    }
+    std::env::var_os("HOME")
+        .map(|p| PathBuf::from(p).join(".config/harnesshub"))
+        .ok_or_else(|| std::io::Error::other("Config directory is unavailable."))
+}
 fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
@@ -27,6 +35,13 @@ pub fn runner_command(executable: &str, endpoint: &str, token: &str) -> String {
         quote(endpoint),
         quote(token)
     )
+}
+pub fn output_spec(spec: &LaunchSpec) -> std::io::Result<std::process::Output> {
+    Command::new(&spec.command)
+        .args(&spec.args)
+        .envs(&spec.env)
+        .current_dir(&spec.cwd)
+        .output()
 }
 pub fn spawn_spec(spec: &LaunchSpec) -> std::io::Result<i32> {
     Ok(Command::new(&spec.command)

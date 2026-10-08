@@ -65,3 +65,30 @@ committed implementation. HarnessHub is a terminal application.
   requires model selection. Claude native login offers stable model aliases.
 - Cross-platform OS credential stores were not executed here. Secure-store
   errors are reported; there is no plaintext fallback.
+
+## OpenCode Go and auto-saved profiles
+
+- 21 regular tests passed, one credential-store integration test remained ignored
+  in the regular run. Formatting, warnings-denied Clippy, and release build passed.
+- Profile storage round trip, deduplication, removal, and preservation of corrupt
+  files were checked. Writes use a process lock and atomic file replacement.
+- Native Terminal launches automatically saved a profile. The real startup picker
+  displayed it alongside the OpenCode Go preset. Selecting it relaunched without
+  setup questions. CLI `launch --profile 1` also relaunched successfully; repeated
+  launches kept one entry. Profiles contained only configuration/key references.
+- The installed OpenCode 1.18.34 returned its Go model catalog. HarnessHub's model
+  picker displayed it, filtered `kimi-k3`, and launched a disposable Herdr pane
+  whose real OpenCode TUI displayed `Build · Kimi K3 OpenCode Go`.
+- Go config uses OpenCode's native `opencode-go` provider and an environment key
+  reference, preserving built-in model SDK/protocol metadata. No custom provider
+  or universal protocol proxy was substituted.
+- A Windows PowerShell 5 argument bug was found by this runtime check: wrapping
+  ConvertFrom-Json in `@(...)` nested its argument array. Fixed argument splatting;
+  a real PowerShell script test verifies separate model flags and spaced arguments.
+- Existing launcher processes held the old executable open. The new release was
+  installed into checkout-local `.local/bin/harnesshub.exe`; both the global shim
+  and root Windows launcher use it. Existing user sessions were left running.
+- Test profiles and named test runtimes were removed/stopped. The Go startup
+  check used a fake key, sent no AI prompt, and does not establish subscription
+  authentication or paid inference. Public Go model metadata was fetched without
+  credentials; the preset's actual picker uses the installed OpenCode catalog.

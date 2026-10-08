@@ -49,6 +49,29 @@ fn parse(provider: &str, value: &Value) -> Vec<String> {
     models
 }
 pub fn fetch(provider: &str, endpoint: &str, key: &str) -> io::Result<Vec<String>> {
+    if provider == "opencode-go" {
+        let spec = catalog::LaunchSpec {
+            command: "opencode".into(),
+            args: vec!["models".into(), "opencode-go".into()],
+            env: Default::default(),
+            cwd: std::env::current_dir()?.to_string_lossy().into_owned(),
+        };
+        let result = crate::platform::output_spec(&spec)?;
+        if !result.status.success() {
+            return Err(io::Error::other(
+                "OpenCode could not list Go models. Enter a model ID manually.",
+            ));
+        }
+        let mut ids: Vec<_> = String::from_utf8_lossy(&result.stdout)
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("opencode-go/"))
+            .filter(|id| !id.is_empty() && !id.chars().any(char::is_control))
+            .map(str::to_owned)
+            .collect();
+        ids.sort();
+        ids.dedup();
+        return Ok(ids);
+    }
     let base = match provider {
         "anthropic" if endpoint.is_empty() => "https://api.anthropic.com",
         "google" if endpoint.is_empty() => "https://generativelanguage.googleapis.com/v1beta",
