@@ -1,4 +1,112 @@
-# herdr
+# HarnessHub
+
+A native terminal launch desk for popular coding harnesses, built on the Herdr
+runtime. Start by choosing a **model provider**, then choose a compatible harness.
+Work runs in real Herdr panes, with the original terminal UI, status detection,
+workspaces, detach/reattach, and session controls.
+
+There is no web interface, Electron application, or browser service.
+
+## Start
+
+Install [Herdr](https://herdr.dev/docs/install) and Rust, then build this fork's
+native launcher:
+
+```sh
+cargo build -p harnesshub --release --locked
+cargo run -p harnesshub --release --locked
+```
+
+Or run `target/release/harnesshub` (`harnesshub.exe` on Windows) in a terminal.
+`HARNESSHUB_HERDR` can point at a Herdr executable outside PATH. The launcher also
+finds Herdr beside itself or in a checkout-local `.local/herdr/` directory.
+
+The first screen selects a provider: existing harness sign-in, Anthropic, OpenAI,
+Google AI Studio, OpenRouter, or a custom Chat Completions, Responses, or Anthropic
+Messages endpoint. The next screen lists matching harnesses and their installation
+status. Choose your project and model. Keys come from the provider's environment
+variable, or a masked prompt. The launcher then opens the full Herdr terminal UI.
+
+Run another `harnesshub` from another terminal to add another harness. Detach with
+Herdr's `Ctrl+B`, then `q`; the named `harnesshub` session keeps running.
+
+## Commands
+
+```sh
+harnesshub providers
+harnesshub harnesses
+harnesshub launch --provider openai --harness codex --cwd /path/to/project --model YOUR_MODEL
+harnesshub launch --provider openrouter --harness opencode --model vendor/model --no-attach
+harnesshub launch --provider compatible --harness aider --base-url https://provider.example/v1 --model YOUR_MODEL
+harnesshub list
+harnesshub attach
+harnesshub stop w1:p1
+```
+
+Use `--session NAME` to isolate groups. Pane IDs come from `harnesshub list`.
+`stop` ends the chosen pane process; it does not delete project files. Noninteractive
+launches must provide a key through the chosen environment variable and use
+`--no-attach` when no terminal is available.
+
+## Harnesses and BYOK
+
+| Harness | Provider adapter |
+| --- | --- |
+| Claude Code | Anthropic, Anthropic-compatible Messages gateway |
+| Codex | OpenAI, Responses-compatible endpoint |
+| OpenCode | Anthropic, OpenAI, OpenRouter, custom Chat or Responses endpoint |
+| Gemini CLI | Google AI Studio |
+| Aider | Anthropic, OpenAI, OpenRouter, custom Chat endpoint; model required |
+| Pi | Anthropic, OpenAI, Google AI Studio, OpenRouter |
+| Goose, Amp, GitHub Copilot CLI, Cursor Agent | Harness's own login/provider configuration |
+| Terminal | Local shell for project work and setup |
+
+Every harness also supports its existing authentication setup. Provider keys are
+not interchangeable API protocols: an OpenAI Chat endpoint cannot be sent directly
+to Claude Code or Codex. Unsupported combinations are rejected. This version uses
+native provider settings; it does not claim a universal protocol-conversion proxy.
+Custom OpenCode providers require a model ID. Aider models are provider-relative:
+select Anthropic and pass `--model claude-model`; HarnessHub adds Aider's provider
+prefix. OpenRouter model IDs retain their vendor prefix, such as `vendor/model`.
+
+Default key variables: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`,
+`OPENROUTER_API_KEY`, or `HARNESSHUB_API_KEY`. Override the reference with
+`--key-env NAME`. The key is never accepted as a command-line argument or stored
+in a profile, launch command, or temporary credential file. A short-lived,
+authenticated, single-use loopback connection passes it to the target terminal's
+child environment. This is a local credential handoff, not a web service. A local
+process running as your user can still inspect your processes and environment;
+this is not a sandbox boundary. Harnesses retain their own security prompts and
+may persist their own authentication or project state.
+
+Detach preserves live processes. After a runtime/machine restart, the launcher
+must launch BYOK sessions again; expired handoff tickets cannot restore keys.
+
+Adapter references: [Claude gateways](https://code.claude.com/docs/en/llm-gateway),
+[Codex provider configuration](https://developers.openai.com/codex/config-reference/),
+[OpenCode providers](https://opencode.ai/docs/providers),
+[Gemini authentication](https://geminicli.com/docs/get-started/authentication/),
+[Aider keys](https://aider.chat/docs/config/api-keys.html),
+[Pi](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent).
+
+## Validation
+
+```sh
+cargo fmt --package harnesshub --check
+cargo test -p harnesshub --locked
+cargo clippy -p harnesshub --all-targets --locked -- -D warnings
+```
+
+The new launcher can build independently of the Ghostty terminal library.
+Rebuilding the complete Herdr runtime also requires its original Zig 0.16.0
+toolchain and platform build prerequisites. Upstream instructions remain below.
+
+HarnessHub is an Apache-2.0 fork of [herdrdev/herdr](https://github.com/herdrdev/herdr).
+The original runtime, license, and attribution are retained.
+
+---
+
+## Upstream Herdr
 
 
 <p align="center">
